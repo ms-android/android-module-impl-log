@@ -7,10 +7,6 @@ public class LogImpl extends IlogAdapter {
 
     private boolean aliyun_send = false;
 
-    @Override
-    public void setAliyunSend(boolean f) {
-        this.aliyun_send = f;
-    }
 
     @Override
     public void print(String log) {
