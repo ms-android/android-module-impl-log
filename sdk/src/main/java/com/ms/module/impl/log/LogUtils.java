@@ -64,13 +64,49 @@ import javax.xml.transform.stream.StreamSource;
  */
 public final class LogUtils {
 
+    public static final int V = Log.VERBOSE;
+    public static final int D = Log.DEBUG;
+    public static final int I = Log.INFO;
+    public static final int W = Log.WARN;
+    public static final int E = Log.ERROR;
+    public static final int A = Log.ASSERT;
     private static final String TAG = "LogUtils";
-
+    private static final char[] T = new char[]{'V', 'D', 'I', 'W', 'E', 'A'};
+    private static final int FILE = 0x10;
+    private static final int JSON = 0x20;
+    private static final int XML = 0x30;
+    private static final String FILE_SEP = System.getProperty("file.separator");
+    private static final String LINE_SEP = System.getProperty("line.separator");
+    private static final String TOP_CORNER = "┌";
+    private static final String MIDDLE_CORNER = "├";
+    private static final String LEFT_BORDER = "│ ";
+    private static final String BOTTOM_CORNER = "└";
+    private static final String SIDE_DIVIDER =
+            "────────────────────────────────────────────────────────";
+    private static final String MIDDLE_DIVIDER =
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄";
+    private static final String TOP_BORDER = TOP_CORNER + SIDE_DIVIDER + SIDE_DIVIDER;
+    private static final String MIDDLE_BORDER = MIDDLE_CORNER + MIDDLE_DIVIDER + MIDDLE_DIVIDER;
+    private static final String BOTTOM_BORDER = BOTTOM_CORNER + SIDE_DIVIDER + SIDE_DIVIDER;
+    private static final int MAX_LEN = 3000;
+    private static final String NOTHING = "log nothing";
+    private static final String NULL = "null";
+    private static final String ARGS = "args";
+    private static final String PLACEHOLDER = " ";
+    private static final Config CONFIG = new Config();
+    private static final Gson GSON = new GsonBuilder()
+            .setPrettyPrinting().serializeNulls().create();
+    private static final ThreadLocal<SimpleDateFormat> SDF_THREAD_LOCAL = new ThreadLocal<>();
+    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final SimpleArrayMap<Class, IFormatter> I_FORMATTER_MAP = new SimpleArrayMap<>();
     /**
      * 是否输出日志
      */
     public static boolean DEBUG = true;
 
+    private LogUtils() {
+        throw new UnsupportedOperationException("u can't instantiate me...");
+    }
 
     public static void d(String tag, String log) {
         if (DEBUG) {
@@ -102,15 +138,13 @@ public final class LogUtils {
         }
     }
 
-
     public static void jsonFormat(String tag, String log) {
         if (DEBUG) {
             if (tag != null && log != null) {
-             json(tag,log);
+                json(tag, log);
             }
         }
     }
-
 
     public static void obj(String tag, Object obj) {
         if (DEBUG) {
@@ -119,7 +153,6 @@ public final class LogUtils {
             }
         }
     }
-
 
     public static void warning(String tag, String log, String plan) {
 
@@ -135,57 +168,6 @@ public final class LogUtils {
         Log.e(tag, "└───────────────────────────────────────────────────────");
 
 
-    }
-
-
-    public static final int V = Log.VERBOSE;
-    public static final int D = Log.DEBUG;
-    public static final int I = Log.INFO;
-    public static final int W = Log.WARN;
-    public static final int E = Log.ERROR;
-    public static final int A = Log.ASSERT;
-
-    @IntDef({V, D, I, W, E, A})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface TYPE {
-    }
-
-    private static final char[] T = new char[]{'V', 'D', 'I', 'W', 'E', 'A'};
-
-    private static final int FILE = 0x10;
-    private static final int JSON = 0x20;
-    private static final int XML = 0x30;
-
-    private static final String FILE_SEP = System.getProperty("file.separator");
-    private static final String LINE_SEP = System.getProperty("line.separator");
-    private static final String TOP_CORNER = "┌";
-    private static final String MIDDLE_CORNER = "├";
-    private static final String LEFT_BORDER = "│ ";
-    private static final String BOTTOM_CORNER = "└";
-    private static final String SIDE_DIVIDER =
-            "────────────────────────────────────────────────────────";
-    private static final String MIDDLE_DIVIDER =
-            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄";
-    private static final String TOP_BORDER = TOP_CORNER + SIDE_DIVIDER + SIDE_DIVIDER;
-    private static final String MIDDLE_BORDER = MIDDLE_CORNER + MIDDLE_DIVIDER + MIDDLE_DIVIDER;
-    private static final String BOTTOM_BORDER = BOTTOM_CORNER + SIDE_DIVIDER + SIDE_DIVIDER;
-    private static final int MAX_LEN = 3000;
-    private static final String NOTHING = "log nothing";
-    private static final String NULL = "null";
-    private static final String ARGS = "args";
-    private static final String PLACEHOLDER = " ";
-    private static final Config CONFIG = new Config();
-    private static final Gson GSON = new GsonBuilder()
-            .setPrettyPrinting().serializeNulls().create();
-
-    private static final ThreadLocal<SimpleDateFormat> SDF_THREAD_LOCAL = new ThreadLocal<>();
-
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
-
-    private static final SimpleArrayMap<Class, IFormatter> I_FORMATTER_MAP = new SimpleArrayMap<>();
-
-    private LogUtils() {
-        throw new UnsupportedOperationException("u can't instantiate me...");
     }
 
     public static Config getConfig() {
@@ -695,6 +677,70 @@ public final class LogUtils {
         });
     }
 
+    private static <T> Class getTypeClassFromParadigm(final IFormatter<T> formatter) {
+        Type[] genericInterfaces = formatter.getClass().getGenericInterfaces();
+        Type type;
+        if (genericInterfaces.length == 1) {
+            type = genericInterfaces[0];
+        } else {
+            type = formatter.getClass().getGenericSuperclass();
+        }
+        type = ((ParameterizedType) type).getActualTypeArguments()[0];
+        while (type instanceof ParameterizedType) {
+            type = ((ParameterizedType) type).getRawType();
+        }
+        String className = type.toString();
+        if (className.startsWith("class ")) {
+            className = className.substring(6);
+        } else if (className.startsWith("interface ")) {
+            className = className.substring(10);
+        }
+        try {
+            return Class.forName(className);
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    private static Class getClassFromObject(final Object obj) {
+        Class objClass = obj.getClass();
+        if (objClass.isAnonymousClass() || objClass.isSynthetic()) {
+            Type[] genericInterfaces = objClass.getGenericInterfaces();
+            String className;
+            if (genericInterfaces.length == 1) {// interface
+                Type type = genericInterfaces[0];
+                while (type instanceof ParameterizedType) {
+                    type = ((ParameterizedType) type).getRawType();
+                }
+                className = type.toString();
+            } else {// abstract class or lambda
+                Type type = objClass.getGenericSuperclass();
+                while (type instanceof ParameterizedType) {
+                    type = ((ParameterizedType) type).getRawType();
+                }
+                className = type.toString();
+            }
+
+            if (className.startsWith("class ")) {
+                className = className.substring(6);
+            } else if (className.startsWith("interface ")) {
+                className = className.substring(10);
+            }
+            try {
+                return Class.forName(className);
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            }
+        }
+        return objClass;
+    }
+
+    @IntDef({V, D, I, W, E, A})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TYPE {
+    }
+
     public static class Config {
         private String mDefaultDir;// The default storage directory of log.
         private String mDir;       // The storage directory of log.
@@ -724,9 +770,20 @@ public final class LogUtils {
             }
         }
 
-        public Config setLogSwitch(final boolean logSwitch) {
-            mLogSwitch = logSwitch;
-            return this;
+        private static String getCurrentProcessName() {
+            ActivityManager am = (ActivityManager) Modules.getDataModule().getAppData().getApplication().getSystemService(Context.ACTIVITY_SERVICE);
+            if (am == null) return "";
+            List<ActivityManager.RunningAppProcessInfo> info = am.getRunningAppProcesses();
+            if (info == null || info.size() == 0) return "";
+            int pid = android.os.Process.myPid();
+            for (ActivityManager.RunningAppProcessInfo aInfo : info) {
+                if (aInfo.pid == pid) {
+                    if (aInfo.processName != null) {
+                        return aInfo.processName;
+                    }
+                }
+            }
+            return "";
         }
 
         public Config setConsoleSwitch(final boolean consoleSwitch) {
@@ -734,82 +791,8 @@ public final class LogUtils {
             return this;
         }
 
-        public Config setGlobalTag(final String tag) {
-            if (isSpace(tag)) {
-                mGlobalTag = "";
-                mTagIsSpace = true;
-            } else {
-                mGlobalTag = tag;
-                mTagIsSpace = false;
-            }
-            return this;
-        }
-
-        public Config setLogHeadSwitch(final boolean logHeadSwitch) {
-            mLogHeadSwitch = logHeadSwitch;
-            return this;
-        }
-
-        public Config setLog2FileSwitch(final boolean log2FileSwitch) {
-            mLog2FileSwitch = log2FileSwitch;
-            return this;
-        }
-
-        public Config setDir(final String dir) {
-            if (isSpace(dir)) {
-                mDir = null;
-            } else {
-                mDir = dir.endsWith(FILE_SEP) ? dir : dir + FILE_SEP;
-            }
-            return this;
-        }
-
-        public Config setDir(final File dir) {
-            mDir = dir == null ? null : (dir.getAbsolutePath() + FILE_SEP);
-            return this;
-        }
-
-        public Config setFilePrefix(final String filePrefix) {
-            if (isSpace(filePrefix)) {
-                mFilePrefix = "util";
-            } else {
-                mFilePrefix = filePrefix;
-            }
-            return this;
-        }
-
         public Config setBorderSwitch(final boolean borderSwitch) {
             mLogBorderSwitch = borderSwitch;
-            return this;
-        }
-
-        public Config setSingleTagSwitch(final boolean singleTagSwitch) {
-            mSingleTagSwitch = singleTagSwitch;
-            return this;
-        }
-
-        public Config setConsoleFilter(@TYPE final int consoleFilter) {
-            mConsoleFilter = consoleFilter;
-            return this;
-        }
-
-        public Config setFileFilter(@TYPE final int fileFilter) {
-            mFileFilter = fileFilter;
-            return this;
-        }
-
-        public Config setStackDeep(@IntRange(from = 1) final int stackDeep) {
-            mStackDeep = stackDeep;
-            return this;
-        }
-
-        public Config setStackOffset(@IntRange(from = 0) final int stackOffset) {
-            mStackOffset = stackOffset;
-            return this;
-        }
-
-        public Config setSaveDays(@IntRange(from = 1) final int saveDays) {
-            mSaveDays = saveDays;
             return this;
         }
 
@@ -832,12 +815,40 @@ public final class LogUtils {
             return mDir == null ? mDefaultDir : mDir;
         }
 
+        public Config setDir(final String dir) {
+            if (isSpace(dir)) {
+                mDir = null;
+            } else {
+                mDir = dir.endsWith(FILE_SEP) ? dir : dir + FILE_SEP;
+            }
+            return this;
+        }
+
+        public Config setDir(final File dir) {
+            mDir = dir == null ? null : (dir.getAbsolutePath() + FILE_SEP);
+            return this;
+        }
+
         public String getFilePrefix() {
             return mFilePrefix;
         }
 
+        public Config setFilePrefix(final String filePrefix) {
+            if (isSpace(filePrefix)) {
+                mFilePrefix = "util";
+            } else {
+                mFilePrefix = filePrefix;
+            }
+            return this;
+        }
+
         public boolean isLogSwitch() {
             return mLogSwitch;
+        }
+
+        public Config setLogSwitch(final boolean logSwitch) {
+            mLogSwitch = logSwitch;
+            return this;
         }
 
         public boolean isLog2ConsoleSwitch() {
@@ -849,12 +860,33 @@ public final class LogUtils {
             return mGlobalTag;
         }
 
+        public Config setGlobalTag(final String tag) {
+            if (isSpace(tag)) {
+                mGlobalTag = "";
+                mTagIsSpace = true;
+            } else {
+                mGlobalTag = tag;
+                mTagIsSpace = false;
+            }
+            return this;
+        }
+
         public boolean isLogHeadSwitch() {
             return mLogHeadSwitch;
         }
 
+        public Config setLogHeadSwitch(final boolean logHeadSwitch) {
+            mLogHeadSwitch = logHeadSwitch;
+            return this;
+        }
+
         public boolean isLog2FileSwitch() {
             return mLog2FileSwitch;
+        }
+
+        public Config setLog2FileSwitch(final boolean log2FileSwitch) {
+            mLog2FileSwitch = log2FileSwitch;
+            return this;
         }
 
         public boolean isLogBorderSwitch() {
@@ -865,40 +897,54 @@ public final class LogUtils {
             return mSingleTagSwitch;
         }
 
+        public Config setSingleTagSwitch(final boolean singleTagSwitch) {
+            mSingleTagSwitch = singleTagSwitch;
+            return this;
+        }
+
         public char getConsoleFilter() {
             return T[mConsoleFilter - V];
+        }
+
+        public Config setConsoleFilter(@TYPE final int consoleFilter) {
+            mConsoleFilter = consoleFilter;
+            return this;
         }
 
         public char getFileFilter() {
             return T[mFileFilter - V];
         }
 
+        public Config setFileFilter(@TYPE final int fileFilter) {
+            mFileFilter = fileFilter;
+            return this;
+        }
+
         public int getStackDeep() {
             return mStackDeep;
+        }
+
+        public Config setStackDeep(@IntRange(from = 1) final int stackDeep) {
+            mStackDeep = stackDeep;
+            return this;
         }
 
         public int getStackOffset() {
             return mStackOffset;
         }
 
+        public Config setStackOffset(@IntRange(from = 0) final int stackOffset) {
+            mStackOffset = stackOffset;
+            return this;
+        }
+
         public int getSaveDays() {
             return mSaveDays;
         }
 
-        private static String getCurrentProcessName() {
-            ActivityManager am = (ActivityManager) Modules.getDataModule().getAppData().getApplication().getSystemService(Context.ACTIVITY_SERVICE);
-            if (am == null) return "";
-            List<ActivityManager.RunningAppProcessInfo> info = am.getRunningAppProcesses();
-            if (info == null || info.size() == 0) return "";
-            int pid = android.os.Process.myPid();
-            for (ActivityManager.RunningAppProcessInfo aInfo : info) {
-                if (aInfo.pid == pid) {
-                    if (aInfo.processName != null) {
-                        return aInfo.processName;
-                    }
-                }
-            }
-            return "";
+        public Config setSaveDays(@IntRange(from = 1) final int saveDays) {
+            mSaveDays = saveDays;
+            return this;
         }
 
         @Override
@@ -1188,65 +1234,6 @@ public final class LogUtils {
             }
             throw new IllegalArgumentException("Array has incompatible type: " + object.getClass());
         }
-    }
-
-    private static <T> Class getTypeClassFromParadigm(final IFormatter<T> formatter) {
-        Type[] genericInterfaces = formatter.getClass().getGenericInterfaces();
-        Type type;
-        if (genericInterfaces.length == 1) {
-            type = genericInterfaces[0];
-        } else {
-            type = formatter.getClass().getGenericSuperclass();
-        }
-        type = ((ParameterizedType) type).getActualTypeArguments()[0];
-        while (type instanceof ParameterizedType) {
-            type = ((ParameterizedType) type).getRawType();
-        }
-        String className = type.toString();
-        if (className.startsWith("class ")) {
-            className = className.substring(6);
-        } else if (className.startsWith("interface ")) {
-            className = className.substring(10);
-        }
-        try {
-            return Class.forName(className);
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
-
-    private static Class getClassFromObject(final Object obj) {
-        Class objClass = obj.getClass();
-        if (objClass.isAnonymousClass() || objClass.isSynthetic()) {
-            Type[] genericInterfaces = objClass.getGenericInterfaces();
-            String className;
-            if (genericInterfaces.length == 1) {// interface
-                Type type = genericInterfaces[0];
-                while (type instanceof ParameterizedType) {
-                    type = ((ParameterizedType) type).getRawType();
-                }
-                className = type.toString();
-            } else {// abstract class or lambda
-                Type type = objClass.getGenericSuperclass();
-                while (type instanceof ParameterizedType) {
-                    type = ((ParameterizedType) type).getRawType();
-                }
-                className = type.toString();
-            }
-
-            if (className.startsWith("class ")) {
-                className = className.substring(6);
-            } else if (className.startsWith("interface ")) {
-                className = className.substring(10);
-            }
-            try {
-                return Class.forName(className);
-            } catch (ClassNotFoundException e) {
-                e.printStackTrace();
-            }
-        }
-        return objClass;
     }
 
 }
